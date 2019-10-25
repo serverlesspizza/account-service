@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Pizza Account Service
+Globals:
+  Api:
+    EndpointConfiguration: REGIONAL
+    OpenApiVersion: "3.0"
+
+Parameters:
+  Environment:
+    Description: The environment
+    Type: String
+
+Mappings:
+  EnvironmentMap:
+    dev:
+      DomainName: "api.dev.serverlesspizza.com"
+    prod:
+      DomainName: "api.serverlesspizza.com"
+
+Resources:
+  AccountTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: accountId
+          AttributeType: S
+      TableName: !Join
+        - '-'
+        - - !Ref Environment
+          - 'account'
+      KeySchema:
+        - AttributeName: accountId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  ServerlessRestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Join
+        - '-'
+        - - 'serverlesspizza'
+          - !Ref Environment
+          - 'account-api'
+      StageName: !Ref Environment
+      EndpointConfiguration: REGIONAL
+      MethodSettings:
+        - HttpMethod: '*'
+          ResourcePath: '/*'
+          LoggingLevel: INFO
+          DataTraceEnabled: true
+          MetricsEnabled: true
+      DefinitionBody:
+        swagger: "2.0"
+        info:
+          title: "account-service API"
+        paths:
+          /:
+            options:
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AccountServiceFunction.Arn}/invocations
+                httpMethod: "POST"
+                type: "aws_proxy"
+            post:
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AccountServiceFunction.Arn}/invocations
+                httpMethod: "POST"
+                type: "aws_proxy"
+              security:
+                - AWS_IAM: []
+          /{accountId}:
+            options:
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AccountServiceFunction.Arn}/invocations
+                httpMethod: "POST"
+                type: "aws_proxy"
+            get:
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AccountServiceFunction.Arn}/invocations
+                httpMethod: "POST"
+                type: "aws_proxy"
+              security:
+                - AWS_IAM: []
+            put:
+              x-amazon-apigateway-integration:
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AccountServiceFunction.Arn}/invocations
+                httpMethod: "POST"
+                type: "aws_proxy"
+              security:
+                - AWS_IAM: []
+        openapi: "3.0"
+        components:
+          securitySchemes:
+            AWS_IAM:
+              x-amazon-apigateway-authtype: "awsSigv4"
+              type: "apiKey"
+              name: "Authorization"
+              in: "header"
+
+  AccountServiceFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn:
+        Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*/*
+      FunctionName: !Ref AccountServiceFunction
+
+  AccountServiceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Join
+        - '-'
+        - - 'serverlesspizza'
+          - !Ref Environment
+          - 'account'
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+      Handler: com.serverlesspizza.service.account.StreamLambdaHandler::handleRequest
+      Runtime: java8
+      CodeUri: target/account-service-1.0-SNAPSHOT-lambda-package.zip
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSLambdaExecute
+        - AmazonDynamoDBFullAccess
+
+  AccountApiBasePathMapping:
+    DependsOn:
+      - ServerlessRestApiStage
+    Type: AWS::ApiGateway::BasePathMapping
+    Properties:
+      BasePath: account
+      DomainName: !FindInMap [EnvironmentMap, !Ref Environment, DomainName]
+      RestApiId: !Ref ServerlessRestApi
+      Stage: !Ref Environment
